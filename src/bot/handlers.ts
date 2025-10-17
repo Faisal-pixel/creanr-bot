@@ -39,6 +39,17 @@ bot.start(async (ctx) => {
   const planName = escapeMDV2(sub?.sub_name ?? "Unknown Plan");
   const price = escapeMDV2(String(sub?.price_amount ?? "Unknown Price"));
 
+  const adminRights = [
+    "manage_chat", // full chat management
+    "delete_messages",
+    "ban_users",
+    "invite_users",
+    "pin_messages",
+    "promote_members", // ability to add/promote admins (filters to high-privilege users)
+    "manage_video_chats",
+    "restrict_members",
+  ];
+
   await ctx.replyWithMarkdownV2(
     // [
     //   `*Link Subscription Plan*`,
@@ -55,7 +66,7 @@ bot.start(async (ctx) => {
       [
         Markup.button.url(
           "Select a Telegram Group",
-          `https://t.me/${process.env.BOT_USERNAME}?startgroup=${payload}`,
+          `https://t.me/${process.env.BOT_USERNAME}?startgroup=${payload}&admin_rights=${adminRights.join(",")}`,
         ),
       ],
       [Markup.button.callback("Use a Telegram Channel instead", `USE_CHANNEL:${payload}`)],

@@ -77,9 +77,40 @@ export const TelegramService = {
       console.log("Error upserting subscription telegram link (saveSubscriptionLink function): ", error);
       throw new Error(error.message);
     }
-
+ 
     if(chat.bot_is_admin) {
         await supabase.from('subscriptions').update({ subscription_state: 'active' }).eq('id', subscriptionId);
     }
+  },
+
+  getExistingLinkBySubscriptionAndTgChatId: async (subscriptionId: string, tgChatId: number) => {
+    const { data, error } = await supabase
+      .from('subscription_telegram_link')
+      .select('*')
+      .eq('subscription_id', subscriptionId)
+      .eq('tg_chat_id', tgChatId)
+      .single();
+    if (error) { // PGRST116 = No rows found. Ignore no rows found error
+      console.log("Error fetching existing link (getExistingLinkBySubscriptionAndTgChatId function): ", error);
+      throw new Error(error.message);
+    }
+
+    
+    return data;
+  },
+
+  // “is this subscription linked to any chat?” if you want to block re-linking:
+  getExistingLinkBySubscription: async (subscriptionId: string) => {
+    const { data, error } = await supabase
+      .from('subscription_telegram_link')
+      .select('*')
+      .eq('subscription_id', subscriptionId)
+      .single();
+    if (error) {
+      console.log("Error fetching existing link (getExistingLinkBySubscription function): ", error);
+      throw new Error(error.message);
+    }
+    return data;
   }
-}
+
+};

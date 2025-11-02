@@ -78,12 +78,12 @@ bot.start(async (ctx) => {
   // );
 
   // Then i want to check whether the subscriciption is already linked to a telegram chat
-  const existingLink = await TelegramService.getExistingLinkBySubscription(
-    session.subscription_id,
-  );
+  const existingLink = await TelegramService.getExistingLinkBySubscription(session.subscription_id);
   if (existingLink) {
     const stateText = existingLink.bot_is_admin ? "active ✅" : "pending ⏳";
-    await ctx.reply(`This subscription is already linked to "${existingLink.tg_chat_title}" (${stateText}).`);
+    await ctx.reply(
+      `This subscription is already linked to "${existingLink.tg_chat_title}" (${stateText}).`,
+    );
     return;
   }
 
@@ -206,9 +206,10 @@ bot.start(async (ctx) => {
 
 // Now here is the bot event that listens for any message
 type CTX = {
-  chat_shared?: unknown
-}
-bot.on("message", async (ctx, next) => { // ctx is the basically an object that contains info about the message and the user that sent it
+  chat_shared?: unknown;
+};
+bot.on("message", async (ctx, next) => {
+  // ctx is the basically an object that contains info about the message and the user that sent it
   // if the message does not carry a chat_shared field, this is because any message can come in, but I want to specifically know
   // and confirm that the user selected a group or channel, and chat_shared only comes from that specific action
   if (!(ctx.message as CTX)?.chat_shared) return next();
@@ -234,14 +235,14 @@ bot.on("message", async (ctx, next) => { // ctx is the basically an object that 
   // Once I have the details about the chat, then I want to check the type of chat that was selected
   // chat.type will be 'supergroup' or 'channel' (ignore 'group' if you don’t support it)
   const tg_chat_type = chat.type; // 'supergroup' | 'channel'
-  
+
   // I am also getting the title from the chat details
   const tg_chat_title = "title" in chat ? (chat.title ?? null) : null;
 
-  // Now here from the ctx, I have a method getChatMember that helps me get details about a member from the group chat, I just 
+  // Now here from the ctx, I have a method getChatMember that helps me get details about a member from the group chat, I just
   // need to specify the chat id and the user id. The user id will be the person that sent the message hence ctx.from.id
   const member = await ctx.telegram.getChatMember(chatId, ctx.from!.id);
-  
+
   // Then I am check the status of the member in that chat to confirm they are an admin
   const status = (member as any).status; // 'creator' | 'administrator' | ...
 
@@ -264,9 +265,7 @@ bot.on("message", async (ctx, next) => { // ctx is the basically an object that 
   // **DB short-circuit: already linked to *this same* chat?**
   // If by any chance they get to this stage and the subscription they are trying to link is already linked to a telegram chat
   // then I want to inform them that the subscription is already linked and avoid duplicate links
-  const existingLink = await TelegramService.getExistingLinkBySubscription(
-    session.subscription_id,
-  );
+  const existingLink = await TelegramService.getExistingLinkBySubscription(session.subscription_id);
   if (existingLink) {
     const stateText = existingLink.bot_is_admin ? "active ✅" : "pending ⏳";
     await ctx.reply(`This subscription is already linked to "${tg_chat_title}" (${stateText}).`);
@@ -281,7 +280,7 @@ bot.on("message", async (ctx, next) => { // ctx is the basically an object that 
   const me = await ctx.telegram.getMe();
 
   // Defining a bunch of variables: botStatus which will help me know whether the bot is in the chat or not and also let me know
-  // their status (admin/member/none), botIsAdmin is a boolean to know whether bot is admin or not and botCanInvite to know 
+  // their status (admin/member/none), botIsAdmin is a boolean to know whether bot is admin or not and botCanInvite to know
   // whether bot has rights to invite users
   let botStatus: "none" | "member" | "admin" = "none";
   let botIsAdmin = false;
@@ -324,7 +323,7 @@ bot.on("message", async (ctx, next) => { // ctx is the basically an object that 
     return;
   }
 
-  // 4)Now that we have confirmed that the bot is an admin & can invite → let us use our bot to create an invite link the bot 
+  // 4)Now that we have confirmed that the bot is an admin & can invite → let us use our bot to create an invite link the bot
   // controls
   let invite_link: string | null = null;
   if (botIsAdmin && botCanInvite) {
@@ -365,6 +364,12 @@ bot.on("message", async (ctx, next) => { // ctx is the basically an object that 
 
   // 7) Friendly message depending on state
   if (botIsAdmin) {
+    try {
+      const countNow = await ctx.telegram.getChatMembersCount(chatId);
+      await TelegramService.upsertBaseline(String(chatId), session.subscription_id, countNow);
+    } catch (e) {
+      console.error("Failed to seed baseline chat_stats:", e);
+    }
     await ctx.reply(`Linked successfully ✅\nI’m admin in "${tg_chat_title}".`);
     await TelegramService.markSessionConsumed(session.id);
   } else {
@@ -373,6 +378,60 @@ bot.on("message", async (ctx, next) => { // ctx is the basically an object that 
     );
   }
 });
+
+/********************************* Code here is to know when a person joins or leaves a group chat******************** */
+// Fires when ANY user's status changes in a chat where your bot is present
+bot.on('chat_member', async (ctx) => {
+  const ev = ctx.chatMember; // ev stands for 'event'
+  if (!ev) return; // if there is no event, just return
+  // Here i am getting the id of the chat where the event happened (the chat that triggered the event)
+  const chatId = ev.chat.id;
+  // I convert it into a string
+  const chatIdStr = String(chatId);
+
+  // We only want to track events in chats where we have a subscription linked to it
+  const link = await TelegramService.findSubscriptionByChatId(chatIdStr);
+  console.log("Received chat_member update:", chatIdStr);
+  console.log("Found link for chat_member update:", link);
+  // If by any chance our bot is in a group chat, but is not linked to any subscription, then we just return
+  if (!link) return;
+
+  /**
+   * ev.old_chat_member gives the folowing object: { check out explanation here: https://core.telegram.org/bots/api#chatmembermember
+   *  status: string; // always member
+   *  user: Object of user
+   *  until_date: number
+   * }
+   */
+  const oldS = ev.old_chat_member.status; // 'left' | 'member' | 'restricted' | 'kicked' | ... oldS stands for 'old status'
+  const newS = ev.new_chat_member.status;
+  console.log(`Chat member update in chat ${chatIdStr}: ${oldS} -> ${newS}`);
+
+  // A variable joined that stores true or false whether a user old status was left or kicked and the new status is member or
+  // restricted
+  const joined =
+    (oldS === 'left' || oldS === 'kicked') &&
+    (newS === 'member' || newS === 'restricted');
+
+  // A variable left that stores true or false whether a user old status was member or restricted and the new status is left or 
+  // kicked
+  const left =
+    (oldS === 'member' || oldS === 'restricted') &&
+    (newS === 'left' || newS === 'kicked');
+
+  try {
+    if (joined) {
+      await TelegramService.bumpJoined(chatIdStr, String(ev.new_chat_member.user.id));
+    }
+    if (left) {
+      await TelegramService.bumpLeft(chatIdStr, String(ev.old_chat_member.user.id));
+    }
+  } catch (e) {
+    console.error('Failed to record join/leave:', e);
+  }
+});
+
+
 
 /**
 

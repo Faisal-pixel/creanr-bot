@@ -9,7 +9,16 @@ export const bot: Telegraf = new Telegraf(ENV.BOT_TOKEN);
 // Then we need to do dev polling
 export async function launchBotDev() {
     // await bot.telegram.deleteWebhook({ drop_pending_updates: true });
-    await bot.launch();
+    await bot.launch({
+        allowedUpdates: [
+            'message',
+            'edited_message',
+            'channel_post',
+            'edited_channel_post',
+            'chat_member',
+            'my_chat_member',
+        ] 
+    });
     console.log("Bot is running in development mode (polling)...");
 }
 

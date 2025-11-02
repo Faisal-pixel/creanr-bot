@@ -154,6 +154,7 @@ export const TelegramService = {
       .select("subscription_id, tg_chat_id")
       .eq("tg_chat_id", chatIdStr) // store as string to avoid JS bigint precision issues
       .maybeSingle();
+    console.log("findSubscriptionByChatId data:", data);
     if (error && error.code !== "PGRST116") {
       console.log(
         "Error finding subscription by chat ID (findSubscriptionByChatId function): ",

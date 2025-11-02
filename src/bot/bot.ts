@@ -17,6 +17,7 @@ export async function launchBotDev() {
             'edited_channel_post',
             'chat_member',
             'my_chat_member',
+            'chat_join_request'
         ] 
     });
     console.log("Bot is running in development mode (polling)...");

@@ -383,7 +383,7 @@ bot.on("message", async (ctx, next) => {
 
 /********************************* Code here is to know when a person joins or leaves a group chat******************** */
 // Fires when ANY user's status changes in a chat where your bot is present
-bot.on('chat_member', async (ctx) => {
+bot.on("chat_member", async (ctx) => {
   const ev = ctx.chatMember; // ev stands for 'event'
   if (!ev) return; // if there is no event, just return
   // Here i am getting the id of the chat where the event happened (the chat that triggered the event)
@@ -393,8 +393,7 @@ bot.on('chat_member', async (ctx) => {
 
   // We only want to track events in chats where we have a subscription linked to it
   const link = await TelegramService.findSubscriptionByChatId(chatIdStr);
-  console.log("Received chat_member update:", chatIdStr);
-  console.log("Found link for chat_member update:", link);
+
   // If by any chance our bot is in a group chat, but is not linked to any subscription, then we just return
   if (!link) return;
 
@@ -407,35 +406,58 @@ bot.on('chat_member', async (ctx) => {
    */
   const oldS = ev.old_chat_member.status; // 'left' | 'member' | 'restricted' | 'kicked' | ... oldS stands for 'old status'
   const newS = ev.new_chat_member.status;
-  console.log(`Chat member update in chat ${chatIdStr}: ${oldS} -> ${newS}`);
+  const userId = ev.new_chat_member.user.id;
 
   // A variable joined that stores true or false whether a user old status was left or kicked and the new status is member or
   // restricted
   const joined =
-    (oldS === 'left' || oldS === 'kicked') &&
-    (newS === 'member' || newS === 'restricted');
+    (oldS === "left" || oldS === "kicked") && (newS === "member" || newS === "restricted");
 
-  // A variable left that stores true or false whether a user old status was member or restricted and the new status is left or 
+  // A variable left that stores true or false whether a user old status was member or restricted and the new status is left or
   // kicked
   const left =
-    (oldS === 'member' || oldS === 'restricted') &&
-    (newS === 'left' || newS === 'kicked');
+    (oldS === "member" || oldS === "restricted") && (newS === "left" || newS === "kicked");
 
   try {
+    // If someone joined
     if (joined) {
-      await TelegramService.bumpJoined(chatIdStr, String(ev.new_chat_member.user.id));
+      // For a case where someone joins a group chat through a link that was not created by the bot, let us also check the
+      // membership
+
+      const hasActiveMembership = await SubscriptionService.userHasActiveMembership({
+        chat_id: chatIdStr,
+        telegram_user_id: String(userId),
+      });
+
+      if (!hasActiveMembership) {
+        // Remove them politely (they skipped the paywall)
+        try {
+          await ctx.telegram.banChatMember(chatId, userId); // kick
+          await ctx.telegram.unbanChatMember(chatId, userId); // optional: allow re-join later via proper link
+          // Optionally DM them if your bot can message users
+          // await ctx.telegram.sendMessage(
+          //   userId,
+          //   "Your subscription is inactive. Please renew to join.",
+          // );
+        } catch (e) {
+          console.error("Failed to remove non-member:", e);
+        }
+      } else {
+        await TelegramService.bumpJoined(chatIdStr, String(userId));
+      }
     }
+    // If someone left
     if (left) {
       await TelegramService.bumpLeft(chatIdStr, String(ev.old_chat_member.user.id));
     }
   } catch (e) {
-    console.error('Failed to record join/leave:', e);
+    console.error("Failed to record join/leave:", e);
   }
 });
 
 /*****************************************Code here is to know when a join request is made *********************** */
 
-bot.on('chat_join_request', async (ctx) => {
+bot.on("chat_join_request", async (ctx) => {
   const chatId = ctx.chat!.id;
   const userId = ctx.chatJoinRequest!.from.id;
   const chatIdStr = String(chatId);
@@ -455,9 +477,6 @@ bot.on('chat_join_request', async (ctx) => {
     await ctx.telegram.declineChatJoinRequest(chatId, userId);
   }
 });
-
-
-
 
 /**
 

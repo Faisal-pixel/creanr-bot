@@ -335,7 +335,7 @@ bot.on("message", async (ctx, next) => {
         // Optional controls:
         // expire_date: Math.floor(Date.now()/1000) + 60*60*24, // 24h expiry
         // member_limit: 100,
-        // creates_join_request: false,
+        creates_join_request: true,
       });
       invite_link = invite.invite_link;
     } catch {
@@ -365,6 +365,8 @@ bot.on("message", async (ctx, next) => {
   // 7) Friendly message depending on state
   if (botIsAdmin) {
     try {
+      // if the bot is an admin, then I want to get the current member count of the group using getChatMembersCount the moment
+      // the bot joins the group chat
       const countNow = await ctx.telegram.getChatMembersCount(chatId);
       await TelegramService.upsertBaseline(String(chatId), session.subscription_id, countNow);
     } catch (e) {
@@ -430,6 +432,30 @@ bot.on('chat_member', async (ctx) => {
     console.error('Failed to record join/leave:', e);
   }
 });
+
+/*****************************************Code here is to know when a join request is made *********************** */
+
+bot.on('chat_join_request', async (ctx) => {
+  const chatId = ctx.chat!.id;
+  const userId = ctx.chatJoinRequest!.from.id;
+  const chatIdStr = String(chatId);
+
+  // Only handle tracked chats
+  const link = await TelegramService.findSubscriptionByChatId(chatIdStr);
+  if (!link) return;
+
+  const hasActiveMembership = await SubscriptionService.userHasActiveMembership({
+    chat_id: chatIdStr,
+    telegram_user_id: String(userId),
+  });
+
+  if (hasActiveMembership) {
+    await ctx.telegram.approveChatJoinRequest(chatId, userId);
+  } else {
+    await ctx.telegram.declineChatJoinRequest(chatId, userId);
+  }
+});
+
 
 
 

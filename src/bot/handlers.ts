@@ -16,9 +16,10 @@ bot.start(async (ctx) => {
   if (!payload) {
     return ctx.reply("Hi! Send /help to get started.");
   }
-
+  // Here, I check whether the payload is still valid. I also use it to
   const session = await checkSessionHelper(payload, ctx);
 
+  // Then i set the user id and payload in memory
   userTokenMemory.set(ctx.from.id, payload);
 
   // (Optional) fetch subscription details to show nicer card
@@ -31,6 +32,8 @@ bot.start(async (ctx) => {
       "An error occurred while fetching your subscription details. Please try again later.",
     );
   }
+
+  // Once we have gotten details about the subscription, then let construct the message I will be sending
 
   const planName = escapeMDV2(sub?.sub_name ?? "Unknown Plan");
   const price = escapeMDV2(String(sub?.price_amount ?? "Unknown Price"));
@@ -74,15 +77,17 @@ bot.start(async (ctx) => {
   //   ]),
   // );
 
+  // Then i want to check whether the subscriciption is already linked to a telegram chat
   const existingLink = await TelegramService.getExistingLinkBySubscription(
     session.subscription_id,
   );
-  console.log("Existing link: ", existingLink);
   if (existingLink) {
     const stateText = existingLink.bot_is_admin ? "active ✅" : "pending ⏳";
     await ctx.reply(`This subscription is already linked to "${existingLink.tg_chat_title}" (${stateText}).`);
     return;
   }
+
+  // If the subscription is not linked yet, then i can proceed to ask the user to select a group or channel
 
   await ctx.replyWithMarkdownV2(
     `*Link Subscription Plan*\n` +
@@ -199,35 +204,56 @@ bot.start(async (ctx) => {
   );
 });
 
-bot.on("message", async (ctx, next) => {
-  if (!(ctx.message as any)?.chat_shared) return next();
+// Now here is the bot event that listens for any message
+type CTX = {
+  chat_shared?: unknown
+}
+bot.on("message", async (ctx, next) => { // ctx is the basically an object that contains info about the message and the user that sent it
+  // if the message does not carry a chat_shared field, this is because any message can come in, but I want to specifically know
+  // and confirm that the user selected a group or channel, and chat_shared only comes from that specific action
+  if (!(ctx.message as CTX)?.chat_shared) return next();
 
   console.log("this is ctx", ctx);
   console.log("Received message: ", ctx.message);
-  const chatShared = (ctx.message as any).chat_shared;
+  const chatShared = (ctx.message as any).chat_shared; // I am saving the chat shared field here
+
+  // If no chat shared info, or the chat shared field is falsy/empty then it probably beans they did not select a group or channel
+  // so i reply them to use the provided buttons
   if (!chatShared) {
     await ctx.reply("Please use the provided buttons to select a group or channel.");
     return;
   }
-  console.log("Chat shared: ", chatShared);
 
+  // I am extracting the chat id from the chat shared field to be able to know the chat the user selected
   const chatId = chatShared.chat_id;
 
-  // 1) Read chat details (type + title)
+  // 1) Read chat details (type + title): From ctx, i can get more information about a chat using the getChat method by passing in
+  // the chat id
   const chat = await ctx.telegram.getChat(chatId);
-  // Chat.type will be 'supergroup' or 'channel' (ignore 'group' if you don’t support it)
+
+  // Once I have the details about the chat, then I want to check the type of chat that was selected
+  // chat.type will be 'supergroup' or 'channel' (ignore 'group' if you don’t support it)
   const tg_chat_type = chat.type; // 'supergroup' | 'channel'
+  
+  // I am also getting the title from the chat details
   const tg_chat_title = "title" in chat ? (chat.title ?? null) : null;
 
+  // Now here from the ctx, I have a method getChatMember that helps me get details about a member from the group chat, I just 
+  // need to specify the chat id and the user id. The user id will be the person that sent the message hence ctx.from.id
   const member = await ctx.telegram.getChatMember(chatId, ctx.from!.id);
+  
+  // Then I am check the status of the member in that chat to confirm they are an admin
   const status = (member as any).status; // 'creator' | 'administrator' | ...
 
+  // If the status is not creator or administrator, then it definitely means they are not an admin. They must be an admin
+  // to be able to proceed with the connection process
   if (status !== "creator" && status !== "administrator") {
     await ctx.reply("You must be an admin of that chat. Please choose another one.");
     return;
   }
 
-  // You stored the token by user id earlier; fetch session to get subscription_id
+  // Remember that I stored the token earlier in userTokenMemory by user id, I am going to need it to confirm that the token
+  // is still valid and in session and also to get the subscription id the user is tryig to link
   const token = userTokenMemory.get(ctx.from!.id);
   if (!token) {
     await ctx.reply("Session (Token) not found. Please start again from your dashboard.");
@@ -236,33 +262,48 @@ bot.on("message", async (ctx, next) => {
   const session = await checkSessionHelper(token, ctx);
 
   // **DB short-circuit: already linked to *this same* chat?**
-
+  // If by any chance they get to this stage and the subscription they are trying to link is already linked to a telegram chat
+  // then I want to inform them that the subscription is already linked and avoid duplicate links
   const existingLink = await TelegramService.getExistingLinkBySubscription(
     session.subscription_id,
   );
-  console.log("Existing link: ", existingLink);
   if (existingLink) {
     const stateText = existingLink.bot_is_admin ? "active ✅" : "pending ⏳";
     await ctx.reply(`This subscription is already linked to "${tg_chat_title}" (${stateText}).`);
     return;
   }
 
+  // Now what I just did is confirm that the person is an admin of the chat and also that that they are still in session
+  // Now i need to confirm that the bot is already in the group chat and also an admin
   // Code below confirms the bot's status in the chat and to check whether bot has been added to the chat or not
+
+  // So i can can get information about the bot itself using getMe
   const me = await ctx.telegram.getMe();
 
+  // Defining a bunch of variables: botStatus which will help me know whether the bot is in the chat or not and also let me know
+  // their status (admin/member/none), botIsAdmin is a boolean to know whether bot is admin or not and botCanInvite to know 
+  // whether bot has rights to invite users
   let botStatus: "none" | "member" | "admin" = "none";
   let botIsAdmin = false;
   let botCanInvite = false;
 
   try {
+    // Remember the getChatMember method I used earlier to get details about a user in a chat? I am using it again here but this
+    // time to get details about the bot in that chat
     const bm = await ctx.telegram.getChatMember(chatId, me.id); // bm stands for 'bot member'
+
+    // then i can confirm the status of the bot in that chat
     const s = (bm as any).status as string; // 'administrator' | 'member' | 'left' | 'kicked'...
+
+    // Its important for the bot to be an administrator, if it is set true and set the botStatus to admin, it it is not
+    // then check if it is a member and set botStatus to member, else set botStatus to none
     if (s === "administrator") {
       botIsAdmin = true;
       botStatus = "admin";
     } else if (s === "member") botStatus = "member";
     else botStatus = "none";
 
+    // Now if the bot is an admin, I want to check whether it has rights to invite users
     // rights to invite live under bm.can_* when admin; in Telegraf raw object it’s often bm.can_invite_users
     if (botIsAdmin) {
       const r: any = bm; // r stands for 'rights'
@@ -274,7 +315,6 @@ bot.on("message", async (ctx, next) => {
     botIsAdmin = false;
     botCanInvite = false;
   }
-  console.log("BOT STATUS: ", botStatus);
 
   if (botStatus === "none") {
     // Not in the chat yet — tell the user and wait for my_chat_member update
@@ -284,7 +324,8 @@ bot.on("message", async (ctx, next) => {
     return;
   }
 
-  // 4) If admin & can invite → create an invite link the bot controls
+  // 4)Now that we have confirmed that the bot is an admin & can invite → let us use our bot to create an invite link the bot 
+  // controls
   let invite_link: string | null = null;
   if (botIsAdmin && botCanInvite) {
     try {
@@ -298,12 +339,13 @@ bot.on("message", async (ctx, next) => {
         // creates_join_request: false,
       });
       invite_link = invite.invite_link;
-    } catch (e) {
+    } catch {
       // If we can’t create it (rights missing), just leave invite_link null
       invite_link = null;
     }
   }
 
+  // 5)Now that i have created the chat invite link, lets now update the DB with all the details
   // 5) Resolve the subscription_id (from your earlier /start step)
 
   // 6) Save to DB
@@ -311,6 +353,8 @@ bot.on("message", async (ctx, next) => {
     await ctx.reply("Unsupported chat type. Please use a Group or Channel.");
     return;
   }
+
+  // I reach out to my telegram service to save the subscription link with all the details
   await TelegramService.saveSubscriptionLink(session.subscription_id, {
     id: Number(chatId) as number,
     type: tg_chat_type, // 'supergroup' | 'channel'

@@ -6,7 +6,7 @@ export default async function checkSessionHelper(token: string, ctx: any) {
     let session: Awaited<ReturnType<typeof TelegramService.consumeLinkToken>> | null = null;
 
     try {
-        session = await TelegramService.consumeLinkToken(token);
+        session = await TelegramService.consumeLinkToken(token); // 
         return session;
     } catch (error) {
         console.error("Error consuming link token: ", error);

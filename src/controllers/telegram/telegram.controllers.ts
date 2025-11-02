@@ -14,7 +14,7 @@ export const TelegramController = {
          const {data: parsedData, error } = CreateTelegramLinkSessionSchema.safeParse(_req.body); // returns {success: true, data: T } or {success: false, error: ZodError}
          if (error) {
             console.log("Error parsing request body through CreateTelegramLinkSessionSchema (create function in telegram.controllers.ts): ", parsedData);
-             return res.status(400).json({ error: error.message });
+            return res.status(400).json({ error: error.message });
          }
          // If parsing is successful, you can use parsedData
          const { subscriptionId, userId } = parsedData;

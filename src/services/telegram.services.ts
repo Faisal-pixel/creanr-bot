@@ -34,6 +34,35 @@ export const TelegramService = {
     };
   },
 
+  createJoinLink: async (subscriptionId: string) => {
+    // insert into to the subscription table where subscription id is equal to subscriptionId,
+    // then generate a token random uuid and then append it with JOIN- to indicate its a join link
+    // then build the link like this: https://t.me/BOT_USERNAME?start=JOIN-<token>
+    // the insert into the table join_token_link column and new Date() in the column join_token_link_created_at
+
+    const token = "JOIN-" + randomUUID().replace(/-/g, "").slice(0, 28);
+
+    const { data, error } = await supabase
+      .from("subscriptions")
+      .update({
+        join_token_link: `https://t.me/${process.env.BOT_USERNAME}?start=${token}`,
+        join_token_link_created_at: new Date().toISOString(),
+      })
+      .eq("id", subscriptionId)
+      .select()
+      .single();
+
+    if (error) {
+      console.log(
+        "Error creating join link (createJoinLink function): ",
+        error,
+      );
+      throw new Error(error.message);
+    }
+
+    return true;
+  },
+
   consumeLinkToken: async (token: string) => {
     const { data: telegramLinkSessionData, error: telegramLinkSessionError } = await supabase
       .from("telegram_link_session")
@@ -107,7 +136,7 @@ export const TelegramService = {
     if (chat.bot_is_admin) {
       await supabase
         .from("subscriptions")
-        .update({ subscription_state: "active" })
+        .update({ subscription_state: "active", platform_group_id: String(chat.id) })
         .eq("id", subscriptionId);
     }
   },

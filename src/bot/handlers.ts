@@ -372,6 +372,14 @@ bot.on("message", async (ctx, next) => {
     } catch (e) {
       console.error("Failed to seed baseline chat_stats:", e);
     }
+
+    // Now I want to generate the link that members will click to pay:
+    try {
+      await TelegramService.createJoinLink(session.subscription_id);
+    } catch (error) {
+      console.log("Error creating join link after linking subscription:", error);
+    }
+    
     await ctx.reply(`Linked successfully ✅\nI’m admin in "${tg_chat_title}".`);
     await TelegramService.markSessionConsumed(session.id);
   } else {

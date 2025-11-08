@@ -79,7 +79,7 @@ export const SubscriptionService = {
     }
     const memberId = identity.member_id as string;
 
-    // 3) Check membership table: member + subscription, active & not expired
+    // 3) Check membership table: member + subscription, active & not expired 
     // So we check the membership table for a row matching this member id and subscription id
     // that has status "active" or "expiring_soon" and ends_at in the future
     const nowIso = new Date().toISOString();

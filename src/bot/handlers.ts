@@ -5,16 +5,22 @@ import { Markup } from "telegraf";
 import { escapeHTML } from "@/helpers/escape-html.helpers.js";
 import { escapeMDV2 } from "@/helpers/escape-mdv2.helpers.js";
 import checkSessionHelper from "@/helpers/check-session.helpers.js";
+import type { SubscriptionsTableData, SubscriptionTelegramLinkTableData } from "@/types/index.js";
+import { ENV } from "@/config/env.js";
 
 const userTokenMemory = new Map<number, string>(); // the key is the userid (the telegram numeric user id), and the value is the token they are working with
 /** Necessary when telegram later tells us 'the bot was added to a group by user X', we need to know which plan/token that user started linking
 . This Map helps connect the dots. Will probably change to redis when deployed */
 
-bot.start(async (ctx) => {
+bot.start(async (ctx, next) => {
   const payload = (ctx.payload || "").trim(); // deep-link token after /start
   console.log("This is the payload:", payload);
   if (!payload) {
     return ctx.reply("Hi! Send /help to get started.");
+  }
+
+  if (payload.startsWith("JOIN-")) {
+    return next();
   }
   // Here, I check whether the payload is still valid. I also use it to
   const session = await checkSessionHelper(payload, ctx);
@@ -204,6 +210,88 @@ bot.start(async (ctx) => {
   );
 });
 
+bot.start(async (ctx, next) => {
+  const payload = (ctx.payload || "").trim(); // deep-link token after /start
+  console.log("This is the payload if it is a join link:", payload);
+
+  if (!payload) {
+    return ctx.reply("Hi! Send /help to get started.");
+  }
+
+  // Now that i have this payload, I can use it to find the subscription id. I will basically build the link again
+  // then check for a subscription with that join token link
+  const link = `https://t.me/${process.env.BOT_USERNAME}?start=${payload}`;
+  console.log("Constructed link to find subscription:", link);
+  // if no subscription was found, reply with "Could not find a subscription for that link. Please check your link and try again";
+  let subscription: SubscriptionsTableData;
+  try {
+    subscription = await TelegramService.findSubscriptionByJoinLink(link);
+    console.log("Found subscription:", subscription);
+  } catch (error) {
+    console.log("Error finding subscription:", error);
+    return ctx.reply(
+      "Could not find a subscription for that link. Please check your link and try again.",
+    );
+  }
+
+  // If this works, then wanna get information about the group also from subscription_telegram_link table, then show the messagee
+  try {
+    const subscriptionTelegramLink = await TelegramService.getExistingLinkBySubscription(
+      subscription.id,
+    );
+  } catch (error) {
+    console.error("Error finding subscription telegram link by chat id:", error);
+  }
+
+  //then show join group button, support button, language, about syncgram and the subscribe button
+  // inside your member bot.start, after you found `subscription`
+  const webAppUrl = `${ENV.WEB_APP_URL}/mini-apps/members?join=${payload}`;
+  // 2) set the chat menu button to a web_app for THIS chat (this creates the blue button next to the input)
+  try {
+    // set the menu button for this chat only (pass chatId)
+    await ctx.telegram.setChatMenuButton({
+      chatId: ctx.chat.id, // limit to this chat (private chat with user)
+      menuButton: {
+        type: "web_app",
+        web_app: { url: webAppUrl },
+        text: "Subscribe",
+      },
+    });
+  } catch (err) {
+    // log but do not fail the user flow — older Bot API clients may not support per-chat menu button
+    console.error("setChatMenuButton failed:", err);
+  }
+
+  const replyKeyboard = Markup.keyboard([
+    // Row 2: Join a Group (full width)
+    [Markup.button.text("🎯 Join the Group")],
+    // Row 3: Support + Language side-by-side
+    [Markup.button.text("💬 Support"), Markup.button.text("🌐 Language")],
+    // Row 4: About SyncGram (full width)
+    [Markup.button.text("ℹ️ About SyncGram")],
+  ])
+    .resize()
+    .oneTime(false);
+
+  // Message text to show above the keyboard
+  const userFirstName = ctx.from?.first_name ?? "there";
+  const msg = [
+    `👋 Welcome ${escapeHTML(userFirstName)}`,
+    ``,
+    `Tap '🎯 Join the Group' or click the blue Subscribe button to get started`,
+    ``,
+    `• Subscription Plan name: <b>${escapeHTML(subscription.sub_name ?? "Plan name")}</b>`,
+    `• The invite link will be sent to your email and you will get instant access.`,
+    ``,
+    `Need help? Tap Support anytime!`,
+  ].join("\n");
+
+  // Send the message with the reply keyboard
+  await ctx.replyWithHTML(msg, replyKeyboard);
+});
+
+
+
 // Now here is the bot event that listens for any message
 type CTX = {
   chat_shared?: unknown;
@@ -379,7 +467,7 @@ bot.on("message", async (ctx, next) => {
     } catch (error) {
       console.log("Error creating join link after linking subscription:", error);
     }
-    
+
     await ctx.reply(`Linked successfully ✅\nI’m admin in "${tg_chat_title}".`);
     await TelegramService.markSessionConsumed(session.id);
   } else {

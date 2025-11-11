@@ -6,4 +6,5 @@ export const ENV = {
   PORT: process.env.PORT || 3000,
   BOT_TOKEN: process.env.BOT_TOKEN || "",
   BOT_USERNAME: process.env.BOT_USERNAME || "",
+  WEB_APP_URL: process.env.WEB_APP_URL || "",
 };

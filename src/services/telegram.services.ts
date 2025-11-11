@@ -1,3 +1,4 @@
+import type { SubscriptionTelegramLinkTableData } from "@/types/index.js";
 import { supabase } from "../config/supabase.js";
 import { randomUUID } from "crypto";
 
@@ -172,7 +173,7 @@ export const TelegramService = {
       console.log("Error fetching existing link (getExistingLinkBySubscription function): ", error);
       throw new Error(error.message);
     }
-    return data;
+    return data as SubscriptionTelegramLinkTableData;
   },
 
   // Creating this function just in case i do not have the subscription ID
@@ -192,6 +193,24 @@ export const TelegramService = {
       throw new Error(error.message);
     }
     return data ?? null;
+  },
+
+  findSubscriptionByJoinLink: async (inviteLink: string) => {
+    const { data, error } = await supabase
+      .from("subscriptions")
+      .select("*")
+      .eq("join_token_link", inviteLink)
+      .single();
+
+    if (error) {
+      console.log(
+        "Error finding subscription by join link (findSubscriptionByJoinLink function): ",
+        error,
+      );
+      throw new Error(error.message);
+    }
+
+    return data;
   },
 
   // upsert: basically insert if there is no existing row, or update if there is. It does this if the chat_id already exists

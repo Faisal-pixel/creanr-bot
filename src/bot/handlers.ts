@@ -18,7 +18,7 @@ bot.start(async (ctx, next) => {
   if (!payload) {
     return ctx.reply("Hi! Send /help to get started.");
   }
-
+// here i do this cuz any token starting with JOIN means the person is a member and should
   if (payload.startsWith("JOIN-")) {
     return next();
   }
@@ -244,7 +244,7 @@ bot.start(async (ctx, next) => {
   }
 
   //then show join group button, support button, language, about syncgram and the subscribe button
-  // inside your member bot.start, after you found `subscription`
+// 1) Construct the web app URL with the payload
   const webAppUrl = `${ENV.WEB_APP_URL}/mini-apps/members?join=${payload}`;
   // 2) set the chat menu button to a web_app for THIS chat (this creates the blue button next to the input)
   try {
@@ -477,7 +477,14 @@ bot.on("message", async (ctx, next) => {
   }
 });
 
-/********************************* Code here is to know when a person joins or leaves a group chat******************** */
+/********************************* Code here is to know when a person joins or leaves a group chat ******************** */
+/** IMPORTANT CONTEXT ABOUT THIS CODE BELOW:
+ * Alright so the essence of this code is, if a user joins the group through a link that was created by another admin and not the
+ * bot, or a link to the group chat that does not have the property "create_join_request: true". Usually the bot doesnt have control
+ * over such links, hence the code below listens for when someone has already joined the group, then it checks their membership
+ * status, if not active then they are removed from the group.
+ */
+
 // Fires when ANY user's status changes in a chat where your bot is present
 bot.on("chat_member", async (ctx) => {
   const ev = ctx.chatMember; // ev stands for 'event'
@@ -504,7 +511,7 @@ bot.on("chat_member", async (ctx) => {
   const newS = ev.new_chat_member.status;
   const userId = ev.new_chat_member.user.id;
 
-  // A variable joined that stores true or false whether a user old status was left or kicked and the new status is member or
+  // A variable "joined" that stores true or false whether a user old status was left or kicked and the new status is member or
   // restricted
   const joined =
     (oldS === "left" || oldS === "kicked") && (newS === "member" || newS === "restricted");
@@ -553,6 +560,12 @@ bot.on("chat_member", async (ctx) => {
 
 /*****************************************Code here is to know when a join request is made *********************** */
 
+/** IMPORTANT CONTEXT ABOUT THIS CODE BELOW:
+ * Now this one is different, this code only fires when the link is created with the property "creates_join_request: true".
+ * This means that when a user clicks on such a link, they do not join the group immediately, instead a join request is sent
+ * to the group admins to approve or decline. So this code listens for such join requests, then checks whether the user has
+ * an active membership, if yes then approve the request else decline it and remeber, the link our bot creates has that property.
+**/
 bot.on("chat_join_request", async (ctx) => {
   const chatId = ctx.chat!.id;
   const userId = ctx.chatJoinRequest!.from.id;
